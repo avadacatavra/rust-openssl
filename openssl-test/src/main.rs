@@ -16,10 +16,10 @@ use std::fs::File;
 use std::io;
 use std::io::BufReader;
 use std::io::{Write, Read};
-use std::sync::Arc as Arc; 
+use std::sync::Arc;
 use openssl::ssl;
 use std::ffi;
-use openssl::ssl::{SslMethod, SslContextBuilder,SslConnectorBuilder};
+use openssl::ssl::{SslMethod, SslContextBuilder, SslConnectorBuilder};
 use openssl::x509::X509_FILETYPE_PEM;
 use openssl::ssl::{SslAcceptorBuilder, SslStream};
 use std::net::{TcpListener, TcpStream};
@@ -40,13 +40,13 @@ macro_rules! println_err(
 #[derive(Debug)]
 struct Options {
     port: u16, // provided by the shim
-    server: bool, 
+    server: bool,
     resumes: usize, //??
     require_any_client_cert: bool, //??
     offer_no_client_cas: bool, //??
     tickets: bool, //??
     queue_data: bool, //??
-    host_name: String, 
+    host_name: String,
     key_file: String,
     cert_file: String,
     protocols: Vec<String>, // check later
@@ -61,7 +61,7 @@ impl Options {
     fn new() -> Options {
         Options {
             port: 0,
-            server: false,  // because the shim always connects as a client
+            server: false, // because the shim always connects as a client
             resumes: 0, // ??
             tickets: true,
             host_name: "example.com".to_string(),
@@ -78,7 +78,7 @@ impl Options {
             expect_curve: 0,
         }
     }
- /*  
+    /*  
     fn version_allowed(&self, vers: ProtocolVersion) -> bool {
        (self.min_version.is_none() || vers.get_u16() >= self.min_version.unwrap().get_u16()) &&
        (self.max_version.is_none() || vers.get_u16() <= self.max_version.unwrap().get_u16())
@@ -153,7 +153,8 @@ impl rustls::ServerCertVerifier for NoVerification {
 // Establish Session
 // create a context SslContextBuilder
 // supply it as an argument to the acceptor builder
-fn make_server_cfg(opts: &Options) -> ParsedPkcs12{//Arc<openssl::ssl::SslAcceptor> { 
+fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
+    //Arc<openssl::ssl::SslAcceptor> {
 
     let mut key = vec![];
     let mut cert = vec![];
@@ -166,7 +167,9 @@ fn make_server_cfg(opts: &Options) -> ParsedPkcs12{//Arc<openssl::ssl::SslAccept
     let cert_chain = X509::stack_from_pem(&mut cert).unwrap();
     let certificate = X509::from_pem(&mut cert).unwrap(); // confirm this
     let pkcs12_builder = Pkcs12::builder();
-    let pkcs12 = pkcs12_builder.build("checkopenssl123", subject_name, &pkey, &certificate).unwrap();
+    let pkcs12 = pkcs12_builder
+        .build("checkopenssl123", subject_name, &pkey, &certificate)
+        .unwrap();
     //let pkcs12 = pkcs12_builder.ca(&cert_chain); // need to understand how to pass a certificate chain
     let der = pkcs12.to_der().unwrap();
     let pkcs12 = Pkcs12::from_der(&der).unwrap();
@@ -176,11 +179,11 @@ fn make_server_cfg(opts: &Options) -> ParsedPkcs12{//Arc<openssl::ssl::SslAccept
     identity
 }
 // Make the context builder here. ContextBuilder--> ConnectorBuilder-->Connector-->Stream. Initialize the connector builder once we have the connection request.
-fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslContextBuilder>{
-    let mut context_builder = openssl::ssl::SslContextBuilder::new(SslMethod::tls()).unwrap() ;
-    context_builder.set_certificate_file(&opts.cert_file,X509_FILETYPE_PEM);
+fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslContextBuilder> {
+    let mut context_builder = openssl::ssl::SslContextBuilder::new(SslMethod::tls()).unwrap();
+    context_builder.set_certificate_file(&opts.cert_file, X509_FILETYPE_PEM);
     context_builder.set_certificate_chain_file(&opts.cert_file);
-    context_builder.set_private_key_file(&opts.key_file,X509_FILETYPE_PEM);
+    context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
     Arc::new(context_builder)
 }
 /*
@@ -265,17 +268,18 @@ fn handle_err(err: rustls::TLSError) -> ! {
 */
 // create error condition defintions.
 // create client connection model for sending out connections
-fn exec_server(opts: &Options, identity: &ParsedPkcs12){
+fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
     println!("creating acceptor object");
     let acceptor = SslAcceptorBuilder::mozilla_intermediate(SslMethod::tls(),
-                                                            &identity.pkey,    
+                                                            &identity.pkey,
                                                             &identity.cert,
                                                             &identity.chain)
-                                                            .unwrap()
-                                                            .build();
+            .unwrap()
+            .build();
     let acceptor = Arc::new(acceptor);
-    let listener = TcpListener::bind(("0.0.0.0", opts.port)).expect("port not available");// binding a listener on this port
-    for stream in listener.incoming() { // for every incoming stream on this port
+    let listener = TcpListener::bind(("0.0.0.0", opts.port)).expect("port not available"); // binding a listener on this port
+    for stream in listener.incoming() {
+        // for every incoming stream on this port
         match stream {
             Ok(stream) => {
                 let acceptor = acceptor.clone(); // creates a clone of the configuration
@@ -283,11 +287,11 @@ fn exec_server(opts: &Options, identity: &ParsedPkcs12){
                 handle_client(stream); // this is where reads and writes will take place for every connection established. Need to handle this.
                 drop(acceptor);
             }
-            Err(e) => { 
+            Err(e) => {
                 panic!("Connection has failed {:?}", e);
-                } 
-            }
-}
+            } 
+        }
+    }
 }
 
 
@@ -297,13 +301,14 @@ fn handle_client(mut stream: SslStream<TcpStream>) {
     //ssl_read : returns errors of type ssl :: Error and not Error. Handle them accordingly
     // read : simply returns and writes into a buffer. Pointless for identifying errors , but you can use it to get your client information
     // read_to_end : returns errors and writes result into vector buffer. USE this to identify IO errors and write to buffer
-    loop{
+    loop {
         stream.flush();
         let mut buf = [0u8; 128];
         //let mut check_buf = vec![];
-        let bytes_read = stream.ssl_read(&mut buf).unwrap(); // read returns errors of ssl 
+        let bytes_read = stream.ssl_read(&mut buf).unwrap(); // read returns errors of ssl
         println!("{} bytes were read", bytes_read);
-        if bytes_read == 0 { // This handles 0 bytes being read. ctrl+c for some reason. ctrl+d is another system defined error and we need to handle it. 
+        if bytes_read == 0 {
+            // This handles 0 bytes being read. ctrl+c for some reason. ctrl+d is another system defined error and we need to handle it.
             println!("Reached EOF");
             process::exit(0)
         }
@@ -320,7 +325,7 @@ fn main() {
     let mut args: Vec<_> = env::args().collect(); // returns the arguments that this program was started with. Depends on the runner
     env_logger::init().unwrap(); // initializes the logger for errors if any. unwrap is used to handle either  options or errors
 
-    args.remove(0); // removes the element at position 0, i.e the path 
+    args.remove(0); // removes the element at position 0, i.e the path
     println!("options: {:?}", args); // prints the. options
 
     let mut opts = Options::new();
@@ -465,13 +470,13 @@ fn main() {
         Some(make_server_cfg(&opts)) // create the pkcs object here
     } else {
         None
-    };  
+    };
     let client_cfg = if !opts.server {
         Some(make_client_cfg(&opts))
     } else {
         None
     };
-    
+
     /*
     This represents a single TLS server session.
     Send TLS-protected data to the peer using the io::Write trait implementation. Read data from the peer using the io::Read trait implementation.
@@ -481,16 +486,15 @@ fn main() {
        for us the execute will be the listening part.
        We will find a way later to combine the reads and writes for the client and server
      */
-    
-    for _ in 0..opts.resumes +1 {
-        if opts.server{
+
+    for _ in 0..opts.resumes + 1 {
+        if opts.server {
             exec_server(&opts, pkcs12.as_ref().unwrap());
-        }
-        else{
-            let connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls()).unwrap();
+        } else {
+            let connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls())
+                .unwrap();
             connector_builder.builder()
 
         }
     }
 }
-
