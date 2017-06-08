@@ -28,6 +28,7 @@ use openssl::pkcs12::Pkcs12;
 use openssl::pkcs12::ParsedPkcs12;
 use openssl::x509::X509;
 use openssl::ssl::Error;
+use std::ops::Deref;
 
 static BOGO_NACK: i32 = 89;
 
@@ -179,12 +180,24 @@ fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
     identity
 }
 // Make the context builder here. ContextBuilder--> ConnectorBuilder-->Connector-->Stream. Initialize the connector builder once we have the connection request.
-fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslContextBuilder> {
-    let mut context_builder = openssl::ssl::SslContextBuilder::new(SslMethod::tls()).unwrap();
+fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslConnector> {
+    /*let mut context_builder = openssl::ssl::SslContextBuilder::new(SslMethod::tls()).unwrap();
     context_builder.set_certificate_file(&opts.cert_file, X509_FILETYPE_PEM);
     context_builder.set_certificate_chain_file(&opts.cert_file);
     context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
-    Arc::new(context_builder)
+    Arc::new(context_builder)*/
+    let mut connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls()).unwrap();
+
+    {
+        let context_builder = connector_builder.builder_mut();
+        context_builder.set_certificate_file(&opts.cert_file, X509_FILETYPE_PEM);
+        context_builder.set_certificate_chain_file(&opts.cert_file);
+        context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
+    }
+    let connector: openssl::ssl::SslConnector = connector_builder.build();
+    //context
+    Arc::new(connector)
+    //connector_builder
 }
 /*
 fn make_client_cfg(opts: &Options) -> Arc<rustls::ClientConfig> {
@@ -293,9 +306,6 @@ fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
         }
     }
 }
-
-
-
 fn handle_client(mut stream: SslStream<TcpStream>) {
     // lets first handle errors
     //ssl_read : returns errors of type ssl :: Error and not Error. Handle them accordingly
@@ -317,6 +327,16 @@ fn handle_client(mut stream: SslStream<TcpStream>) {
             *b ^= 0xff;
         }
     }
+}
+
+fn exec_client(opts: &Options, connector: &openssl::ssl::SslConnector) {
+    //let stream = net::TcpStream::connect("127.0.0.1", opts.port).unwrap();
+    let stream = net::TcpStream::connect(("127.0.0.1", opts.port)).expect("cannot connect");
+    let mut stream = connector.connect("google.com", stream).unwrap();
+    stream.write_all(b"GET / HTTP/1.0\r\n\r\n").unwrap();
+    let mut res = vec![];
+    stream.read_to_end(&mut res).unwrap();
+    println!("{}", String::from_utf8_lossy(&res));
 }
 
 fn main() {
@@ -471,7 +491,7 @@ fn main() {
     } else {
         None
     };
-    let client_cfg = if !opts.server {
+    let connector = if !opts.server {
         Some(make_client_cfg(&opts))
     } else {
         None
@@ -491,10 +511,7 @@ fn main() {
         if opts.server {
             exec_server(&opts, pkcs12.as_ref().unwrap());
         } else {
-            let connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls())
-                .unwrap();
-            connector_builder.builder()
-
+            exec_client(&opts, connector.as_ref().unwrap());
         }
     }
 }
