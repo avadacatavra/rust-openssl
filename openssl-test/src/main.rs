@@ -1,6 +1,4 @@
-// This is a test shim for the BoringSSL-Go ('bogo') TLS
-// test suite. See bogo/ for this in action.
-//
+// This is a test shim for the OpenSSL test suite
 // https://boringssl.googlesource.com/boringssl/+/master/ssl/test
 //
 
@@ -40,30 +38,30 @@ macro_rules! println_err(
 
 #[derive(Debug)]
 struct Options {
-    port: u16, // provided by the shim
+    port: u16,
     server: bool,
-    resumes: usize, //??
-    require_any_client_cert: bool, //??
-    offer_no_client_cas: bool, //??
-    tickets: bool, //??
-    queue_data: bool, //??
+    resumes: usize,
+    require_any_client_cert: bool, // #ToDo
+    offer_no_client_cas: bool, //#ToDo
+    tickets: bool, // #ToDo
+    queue_data: bool, //#ToDo
     host_name: String,
     key_file: String,
     cert_file: String,
-    protocols: Vec<String>, // check later
+    protocols: Vec<String>, //#ToDo
     support_tls13: bool,
     support_tls12: bool,
-    //min_version: Option<ProtocolVersion>,
-    //max_version: Option<ProtocolVersion>,
-    expect_curve: u16, //??
+    //min_version: Option<ProtocolVersion>, // #ToDo
+    //max_version: Option<ProtocolVersion>, // #ToDo
+    expect_curve: u16, // #ToDo
 }
 
 impl Options {
     fn new() -> Options {
         Options {
             port: 0,
-            server: false, // because the shim always connects as a client
-            resumes: 0, // ??
+            server: false,
+            resumes: 0,
             tickets: true,
             host_name: "example.com".to_string(),
             queue_data: false,
@@ -79,7 +77,7 @@ impl Options {
             expect_curve: 0,
         }
     }
-    /*  
+    /*  #ToDo : Still need to check for various versions supported. 
     fn version_allowed(&self, vers: ProtocolVersion) -> bool {
        (self.min_version.is_none() || vers.get_u16() >= self.min_version.unwrap().get_u16()) &&
        (self.max_version.is_none() || vers.get_u16() <= self.max_version.unwrap().get_u16())
@@ -95,29 +93,8 @@ impl Options {
     }
     */
 }
-/*
- this needs to be modified using open ssl simplementation of reading certificates. use set_ca_cert
- */
-/*fn load_cert(filename: &str) -> Vec<rustls::Certificate> {
-    let certfile = fs::File::open(filename).expect("cannot open certificate file");
-    let mut reader = BufReader::new(certfile);
-    rustls::internal::pemfile::certs(&mut reader).unwrap()
-}            
 
-fn load_key(filename: &str) -> rustls::PrivateKey {
-    if filename.contains("ecdsa") {
-        println_err!("No ECDSA key support");
-        process::exit(BOGO_NACK);
-    }
-
-    let keyfile = fs::File::open(filename).expect("cannot open private key file");
-    let mut reader = BufReader::new(keyfile);
-    //set_private_key_file()
-    let keys = rustls::internal::pemfile::rsa_private_keys(&mut reader).unwrap();
-    assert!(keys.len() == 1);
-    keys[0].clone()
-} */
-/*
+/* #ToDo: Still need to handle splitting protocols for alpn and using alpn
 fn split_protocols(protos: &str) -> Vec<String> {
     let mut ret = Vec::new();
 
@@ -131,7 +108,7 @@ fn split_protocols(protos: &str) -> Vec<String> {
 
     ret
 }
-
+#ToDo : Still need to handle certificate verification
 struct NoVerification {}
 
 impl rustls::ClientCertVerifier for NoVerification {
@@ -150,13 +127,13 @@ impl rustls::ServerCertVerifier for NoVerification {
         Ok(())
     }
 } */
-// Create a configuration for the server first
-// Establish Session
-// create a context SslContextBuilder
-// supply it as an argument to the acceptor builder
-fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
-    //Arc<openssl::ssl::SslAcceptor> {
 
+// This specifies the server configuration.
+// It does this by creating a pkcs12 object
+// which sets the provided certificate and private key
+// We are expecting private keys and certificates provided
+// to be in PEM format.
+fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
     let mut key = vec![];
     let mut cert = vec![];
     let subject_name = "www.google.com";
@@ -164,18 +141,73 @@ fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
     let mut keyfile = fs::File::open(&opts.key_file).expect("cannot open key file");
     keyfile.read_to_end(&mut key).unwrap();
     certfile.read_to_end(&mut cert).unwrap();
-    let pkey = PKey::private_key_from_pem(&mut key).unwrap();
-    let cert_chain = X509::stack_from_pem(&mut cert).unwrap();
-    let certificate = X509::from_pem(&mut cert).unwrap(); // confirm this
+    println!("Beginning to create key");
+    let pkey = match PKey::private_key_from_pem(&mut key) {
+        Ok(pkey) => pkey,
+        Err(err) => {
+            println!("Creation of pkey failed");
+            process::exit(0)
+        }
+    };
+    println!("Creating cert");
+
+    // #ToDo : Still need to set certificate chains
+
+    //let cert_chain = X509::stack_from_pem(&mut cert).unwrap();
+    /*let len = match sess.read(&mut buf) {
+            Ok(len) => len,
+            Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
+                println!("EOF (tls)");
+                return;
+            }
+            Err(err) => panic!("unhandled read error {:?}", err),
+        };
+    */
+    //let certificate = X509::from_pem(&mut cert).unwrap(); // confirm this
+    let certificate = match X509::from_pem(&mut cert) {
+        Ok(certificate) => certificate,
+        Err(err) => {
+            println!("certificate verification error");
+            process::exit(0)
+        }
+    };
     let pkcs12_builder = Pkcs12::builder();
-    let pkcs12 = pkcs12_builder
+    /*let pkcs12 = pkcs12_builder
         .build("checkopenssl123", subject_name, &pkey, &certificate)
-        .unwrap();
+        .unwrap()*/
+    println!("Creating pkcs object");
+    let pkcs12 = match pkcs12_builder.build("checkopenssl123", subject_name, &pkey, &certificate) {
+        Ok(pkcs12) => pkcs12,
+        Err(err) => {
+            println!("Pkcs12 object creation failed");
+            process::exit(0)
+        }
+    };
     //let pkcs12 = pkcs12_builder.ca(&cert_chain); // need to understand how to pass a certificate chain
-    let der = pkcs12.to_der().unwrap();
-    let pkcs12 = Pkcs12::from_der(&der).unwrap();
-    let parsed = pkcs12.parse("checkopenssl123").unwrap();
-    let identity = pkcs12.parse("checkopenssl123").unwrap();
+    println!("Creating der object");
+    let der = match pkcs12.to_der() {
+        Ok(der) => der,
+        Err(err) => {
+            println!("Reading pkcs to der failed");
+            process::exit(0)
+        }
+    };
+    let pkcs12 = match Pkcs12::from_der(&der) {
+        Ok(pkcs12) => pkcs12,
+        Err(err) => {
+            println!("creation of pkcs from der failed");
+            process::exit(0)
+        }
+    };
+    println!("identity obbject");
+    let parsed = pkcs12.parse("checkopenssl123");
+    let identity = match pkcs12.parse("checkopenssl123") {
+        Ok(identity) => identity,
+        Err(err) => {
+            println!("creation of identity object failed");
+            process::exit(0)
+        }
+    };
     println!("identity aquired");
     identity
 }
@@ -186,6 +218,7 @@ fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslConnector> {
     context_builder.set_certificate_chain_file(&opts.cert_file);
     context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
     Arc::new(context_builder)*/
+    // #FixMe: Still need to map errors as per BoGo's descriptions
     let mut connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls()).unwrap();
 
     {
@@ -195,9 +228,7 @@ fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslConnector> {
         context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
     }
     let connector: openssl::ssl::SslConnector = connector_builder.build();
-    //context
     Arc::new(connector)
-    //connector_builder
 }
 /*
 fn make_client_cfg(opts: &Options) -> Arc<rustls::ClientConfig> {
@@ -231,12 +262,12 @@ fn make_client_cfg(opts: &Options) -> Arc<rustls::ClientConfig> {
 
     Arc::new(cfg)
 }
-
+#ToDo : This
 fn quit(why: &str) -> ! {
     println_err!("{}", why);
     process::exit(0)
 }
-
+#ToDo : Need to find corresponding OpenSSL errors for mapping
 fn handle_err(err: rustls::TLSError) -> ! {
     use rustls::TLSError;
     use rustls::internal::msgs::enums::{AlertDescription, ContentType};
@@ -279,8 +310,8 @@ fn handle_err(err: rustls::TLSError) -> ! {
     }
 }
 */
-// create error condition defintions.
-// create client connection model for sending out connections
+// This creates an acceptor on the server
+// and accepts incoming streams
 fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
     println!("creating acceptor object");
     let acceptor = SslAcceptorBuilder::mozilla_intermediate(SslMethod::tls(),
@@ -290,24 +321,36 @@ fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
             .unwrap()
             .build();
     let acceptor = Arc::new(acceptor);
-    let listener = TcpListener::bind(("0.0.0.0", opts.port)).expect("port not available"); // binding a listener on this port
-    for stream in listener.incoming() {
-        // for every incoming stream on this port
-        match stream {
-            Ok(stream) => {
-                let acceptor = acceptor.clone(); // creates a clone of the configuration
-                let stream = acceptor.accept(stream).unwrap();
-                handle_client(stream); // this is where reads and writes will take place for every connection established. Need to handle this.
-                drop(acceptor);
-            }
-            Err(e) => {
-                panic!("Connection has failed {:?}", e);
-            } 
+
+    // # ToRemoveLater: This leaves ports open, remove this after confirmation on all tests.
+    //let listener = TcpListener::bind(("127.0.0.1", opts.port)).expect("port not available"); // binding a listener on this port
+    /*let listener = match TcpListener::bind(("127.0.0.1", opts.port)){
+        Ok(listener)=>listener,
+        Err(err)=>{
+            println!("port already in use");
+            process::exit(0)
         }
-    }
+    };*/
+
+    let mut stream = match net::TcpStream::connect(("127.0.0.1", opts.port)) {
+        Ok(stream) => {
+            let acceptor = acceptor.clone();
+            let stream = acceptor.accept(stream).unwrap();
+            handle_client(stream);
+            drop(acceptor);
+        }
+        Err(e) => {
+            panic!("Connection has failed {:?}", e);
+            process::exit(0)
+        } 
+    };
 }
+// This handles the incoming client streams.
+// Checks whether there is data to be read
+// Reads data if there is any and acts as an echo
+// server on the client side
 fn handle_client(mut stream: SslStream<TcpStream>) {
-    // lets first handle errors
+    // #MyNotes:
     //ssl_read : returns errors of type ssl :: Error and not Error. Handle them accordingly
     // read : simply returns and writes into a buffer. Pointless for identifying errors , but you can use it to get your client information
     // read_to_end : returns errors and writes result into vector buffer. USE this to identify IO errors and write to buffer
@@ -332,7 +375,15 @@ fn handle_client(mut stream: SslStream<TcpStream>) {
 fn exec_client(opts: &Options, connector: &openssl::ssl::SslConnector) {
     //let stream = net::TcpStream::connect("127.0.0.1", opts.port).unwrap();
     let stream = net::TcpStream::connect(("127.0.0.1", opts.port)).expect("cannot connect");
-    let mut stream = connector.connect("google.com", stream).unwrap();
+    println!("Hello");
+    let mut stream = match connector.connect("google.com", stream) {
+        Ok(stream) => stream,
+        Err(err) => {
+            println!("{}", err);
+            process::exit(0);
+        }
+    };
+    println!("entered");
     stream.write_all(b"GET / HTTP/1.0\r\n\r\n").unwrap();
     let mut res = vec![];
     stream.read_to_end(&mut res).unwrap();
@@ -340,19 +391,15 @@ fn exec_client(opts: &Options, connector: &openssl::ssl::SslConnector) {
 }
 
 fn main() {
+    let mut args: Vec<_> = env::args().collect();
+    env_logger::init().unwrap();
 
-    //Colect environment variables from the runner
-    let mut args: Vec<_> = env::args().collect(); // returns the arguments that this program was started with. Depends on the runner
-    env_logger::init().unwrap(); // initializes the logger for errors if any. unwrap is used to handle either  options or errors
-
-    args.remove(0); // removes the element at position 0, i.e the path
-    println!("options: {:?}", args); // prints the. options
+    args.remove(0);
+    println!("options: {:?}", args);
 
     let mut opts = Options::new();
-    // Provide command line arguments
-    // Note: try and find a certificate file and key pair to provide to ssl and establish a connection
     while !args.is_empty() {
-        let arg = args.remove(0); // works as a switch case
+        let arg = args.remove(0);
         match arg.as_ref() {
             "-port" => {
                 opts.port = args.remove(0).parse::<u16>().unwrap();
@@ -361,38 +408,43 @@ fn main() {
                 opts.server = true;
             }
             "-key-file" => {
-                opts.key_file = args.remove(0); // provide a key string
+                opts.key_file = args.remove(0);
             }
             "-cert-file" => {
-                opts.cert_file = args.remove(0);  // provide a string
+                opts.cert_file = args.remove(0);
             }
             "-resume-count" => {
                 opts.resumes = args.remove(0).parse::<usize>().unwrap();
             }
+            /*
             "-no-tls13" => {
                 opts.support_tls13 = false; // specific to implementation, probably make this true
             }
             "-no-tls12" => {
                 opts.support_tls12 = false; // specific to implementation, make this true
-            }
-            /*"-min-version" => {
-                let min = args.remove(0).parse::<u16>().unwrap();
-                opts.min_version = Some(ProtocolVersion::Unknown(min));
-            }
-            "-max-version" => {
-                let max = args.remove(0).parse::<u16>().unwrap();
-                opts.max_version = Some(ProtocolVersion::Unknown(max));
-            } */
+            }*/
+            "-no-tls13"|
+            "-no-tls12"|
+            "-min-version" |
+            "-max-version" |
             "-max-cert-list" |
             "-expect-curve-id" |
             "-expect-peer-signature-algorithm" |
             "-expect-advertised-alpn" |
             "-expect-alpn" |
             "-expect-server-name" |
-            "-expect-certificate-types" => {
+            "-expect-certificate-types"|
+            // ToDo: This needs to be implemented
+            "-select-alpn" |
+            "-require-any-client-certificate"|
+            "-shim-writes-first" |
+            "-host-name"|
+            "-advertise-alpn"|
+            "-use-null-client-ca-list"
+            => {
                 println!("not checking {} {}; NYI", arg, args.remove(0));
             }
-
+            /*
             "-select-alpn" => {
                 opts.protocols.push(args.remove(0));
             }
@@ -411,6 +463,7 @@ fn main() {
             "-use-null-client-ca-list" => {
                 opts.offer_no_client_cas = true;
             }
+            */
 
             // defaults:
             "-enable-all-curves" |
@@ -430,13 +483,13 @@ fn main() {
             "-use-early-callback" => {}
 
             // Not implemented things
-            "-dtls" | // this is probably there as a type in open ssl check on that
-            "-enable-ocsp-stapling" |
+            "-dtls" | // this is probably there as a type in open ssl check on that ---exists
+            "-enable-ocsp-stapling" | //exists
             "-cipher" |
             "-psk" |
-            "-renegotiate-freely" |
-            "-false-start" |
-            "-fallback-scsv" |
+            "-renegotiate-freely" |   //check
+            "-false-start" | 
+            "-fallback-scsv" | //disabled checks
             "-fail-early-callback" |
             "-fail-cert-callback" |
             "-install-ddos-callback" |
@@ -472,7 +525,8 @@ fn main() {
             "-expect-cipher-aes" |
             "-retain-only-sha256-client-cert-initial" |
             "-expect-peer-cert-file" |
-            "-signed-cert-timestamps" => {
+            "-signed-cert-timestamps"|
+            "-enable-short-header" => {
                 println!("NYI option {:?}", arg);
                 process::exit(BOGO_NACK);
             }
@@ -496,20 +550,15 @@ fn main() {
     } else {
         None
     };
-
+    println!("moving to establishing a connection");
     /*
     This represents a single TLS server session.
     Send TLS-protected data to the peer using the io::Write trait implementation. Read data from the peer using the io::Read trait implementation.
     */
-    /* We have the server configuration in the acceptor.
-       When we have the resume count, create a listener.
-       for us the execute will be the listening part.
-       We will find a way later to combine the reads and writes for the client and server
-     */
-
     for _ in 0..opts.resumes + 1 {
         if opts.server {
             exec_server(&opts, pkcs12.as_ref().unwrap());
+            println!("Done server");
         } else {
             exec_client(&opts, connector.as_ref().unwrap());
         }
