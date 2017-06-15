@@ -27,12 +27,13 @@ use openssl::pkcs12::ParsedPkcs12;
 use openssl::x509::X509;
 use openssl::ssl::Error;
 use std::ops::Deref;
+use openssl::ssl::HandshakeError;
 
 static BOGO_NACK: i32 = 89;
 
 macro_rules! println_err(
     ($($arg:tt)*) => { {
-        writeln!(&mut ::std::io::stderr(), $($arg)*).unwrap();
+        write!(&mut ::std::io::stderr(), $($arg)*).unwrap();
     } }
     );
 
@@ -141,86 +142,29 @@ fn make_server_cfg(opts: &Options) -> ParsedPkcs12 {
     let mut keyfile = fs::File::open(&opts.key_file).expect("cannot open key file");
     keyfile.read_to_end(&mut key).unwrap();
     certfile.read_to_end(&mut cert).unwrap();
-    println!("Beginning to create key");
-    let pkey = match PKey::private_key_from_pem(&mut key) {
-        Ok(pkey) => pkey,
-        Err(err) => {
-            println!("Creation of pkey failed");
-            process::exit(0)
-        }
-    };
-    println!("Creating cert");
-
+    let pkey = PKey::private_key_from_pem(&mut key).unwrap();
     // #ToDo : Still need to set certificate chains
-
     //let cert_chain = X509::stack_from_pem(&mut cert).unwrap();
-    /*let len = match sess.read(&mut buf) {
-            Ok(len) => len,
-            Err(ref err) if err.kind() == io::ErrorKind::ConnectionAborted => {
-                println!("EOF (tls)");
-                return;
-            }
-            Err(err) => panic!("unhandled read error {:?}", err),
-        };
-    */
     //let certificate = X509::from_pem(&mut cert).unwrap(); // confirm this
-    let certificate = match X509::from_pem(&mut cert) {
-        Ok(certificate) => certificate,
-        Err(err) => {
-            println!("certificate verification error");
-            process::exit(0)
-        }
-    };
+    let certificate = X509::from_pem(&mut cert).unwrap();
     let pkcs12_builder = Pkcs12::builder();
     /*let pkcs12 = pkcs12_builder
         .build("checkopenssl123", subject_name, &pkey, &certificate)
         .unwrap()*/
-    println!("Creating pkcs object");
-    let pkcs12 = match pkcs12_builder.build("checkopenssl123", subject_name, &pkey, &certificate) {
-        Ok(pkcs12) => pkcs12,
-        Err(err) => {
-            println!("Pkcs12 object creation failed");
-            process::exit(0)
-        }
-    };
+    let pkcs12 = pkcs12_builder
+        .build("checkopenssl123", subject_name, &pkey, &certificate)
+        .unwrap();
     //let pkcs12 = pkcs12_builder.ca(&cert_chain); // need to understand how to pass a certificate chain
-    println!("Creating der object");
-    let der = match pkcs12.to_der() {
-        Ok(der) => der,
-        Err(err) => {
-            println!("Reading pkcs to der failed");
-            process::exit(0)
-        }
-    };
-    let pkcs12 = match Pkcs12::from_der(&der) {
-        Ok(pkcs12) => pkcs12,
-        Err(err) => {
-            println!("creation of pkcs from der failed");
-            process::exit(0)
-        }
-    };
-    println!("identity obbject");
+    let der = pkcs12.to_der().unwrap();
+    let pkcs12 = Pkcs12::from_der(&der).unwrap();
     let parsed = pkcs12.parse("checkopenssl123");
-    let identity = match pkcs12.parse("checkopenssl123") {
-        Ok(identity) => identity,
-        Err(err) => {
-            println!("creation of identity object failed");
-            process::exit(0)
-        }
-    };
-    println!("identity aquired");
+    let identity = pkcs12.parse("checkopenssl123").unwrap();
     identity
 }
 // Make the context builder here. ContextBuilder--> ConnectorBuilder-->Connector-->Stream. Initialize the connector builder once we have the connection request.
 fn make_client_cfg(opts: &Options) -> Arc<openssl::ssl::SslConnector> {
-    /*let mut context_builder = openssl::ssl::SslContextBuilder::new(SslMethod::tls()).unwrap();
-    context_builder.set_certificate_file(&opts.cert_file, X509_FILETYPE_PEM);
-    context_builder.set_certificate_chain_file(&opts.cert_file);
-    context_builder.set_private_key_file(&opts.key_file, X509_FILETYPE_PEM);
-    Arc::new(context_builder)*/
-    // #FixMe: Still need to map errors as per BoGo's descriptions
+    // #Remember:: No scope for errors here.
     let mut connector_builder = openssl::ssl::SslConnectorBuilder::new(SslMethod::tls()).unwrap();
-
     {
         let context_builder = connector_builder.builder_mut();
         context_builder.set_certificate_file(&opts.cert_file, X509_FILETYPE_PEM);
@@ -262,88 +206,11 @@ fn make_client_cfg(opts: &Options) -> Arc<rustls::ClientConfig> {
 
     Arc::new(cfg)
 }
-#ToDo : This
+*/
+//#ToDo : This
 fn quit(why: &str) -> ! {
     println_err!("{}", why);
     process::exit(0)
-}
-#ToDo : Need to find corresponding OpenSSL errors for mapping
-fn handle_err(err: rustls::TLSError) -> ! {
-    use rustls::TLSError;
-    use rustls::internal::msgs::enums::{AlertDescription, ContentType};
-
-    println!("TLS error: {:?}", err);
-
-    match err {
-        TLSError::InappropriateHandshakeMessage { .. } |
-        TLSError::InappropriateMessage { .. } => quit(":UNEXPECTED_MESSAGE:"),
-        TLSError::AlertReceived(AlertDescription::RecordOverflow) => {
-            quit(":TLSV1_ALERT_RECORD_OVERFLOW:")
-        }
-        TLSError::AlertReceived(AlertDescription::HandshakeFailure) => quit(":HANDSHAKE_FAILURE:"),
-        TLSError::CorruptMessagePayload(ContentType::Alert) => quit(":BAD_ALERT:"),
-        TLSError::CorruptMessagePayload(ContentType::ChangeCipherSpec) => {
-            quit(":BAD_CHANGE_CIPHER_SPEC:")
-        }
-        TLSError::CorruptMessagePayload(ContentType::Handshake) => quit(":BAD_HANDSHAKE_MSG:"),
-        TLSError::CorruptMessagePayload(ContentType::Unknown(42)) => {
-            quit(":GARBAGE:")
-        }
-        TLSError::CorruptMessage => quit(":GARBAGE:"),
-        TLSError::DecryptError => quit(":DECRYPTION_FAILED_OR_BAD_RECORD_MAC:"),
-        TLSError::PeerIncompatibleError(_) => quit(":INCOMPATIBLE:"),
-        TLSError::PeerMisbehavedError(_) => quit(":PEER_MISBEHAVIOUR:"),
-        TLSError::NoCertificatesPresented => quit(":NO_CERTS:"),
-        TLSError::AlertReceived(AlertDescription::UnexpectedMessage) => {
-            quit(":BAD_ALERT:")
-        }
-        TLSError::WebPKIError(webpki::Error::InvalidSignatureForPublicKey) => {
-            quit(":BAD_SIGNATURE:")
-        }
-        TLSError::WebPKIError(webpki::Error::UnsupportedSignatureAlgorithmForPublicKey) => {
-            quit(":WRONG_SIGNATURE_TYPE:")
-        }
-        _ => {
-            println_err!("unhandled error: {:?}", err);
-            quit(":FIXME:")
-        }
-    }
-}
-*/
-// This creates an acceptor on the server
-// and accepts incoming streams
-fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
-    println!("creating acceptor object");
-    let acceptor = SslAcceptorBuilder::mozilla_intermediate(SslMethod::tls(),
-                                                            &identity.pkey,
-                                                            &identity.cert,
-                                                            &identity.chain)
-            .unwrap()
-            .build();
-    let acceptor = Arc::new(acceptor);
-
-    // # ToRemoveLater: This leaves ports open, remove this after confirmation on all tests.
-    //let listener = TcpListener::bind(("127.0.0.1", opts.port)).expect("port not available"); // binding a listener on this port
-    /*let listener = match TcpListener::bind(("127.0.0.1", opts.port)){
-        Ok(listener)=>listener,
-        Err(err)=>{
-            println!("port already in use");
-            process::exit(0)
-        }
-    };*/
-
-    let mut stream = match net::TcpStream::connect(("127.0.0.1", opts.port)) {
-        Ok(stream) => {
-            let acceptor = acceptor.clone();
-            let stream = acceptor.accept(stream).unwrap();
-            handle_client(stream);
-            drop(acceptor);
-        }
-        Err(e) => {
-            panic!("Connection has failed {:?}", e);
-            process::exit(0)
-        } 
-    };
 }
 // This handles the incoming client streams.
 // Checks whether there is data to be read
@@ -354,18 +221,30 @@ fn handle_client(mut stream: SslStream<TcpStream>) {
     //ssl_read : returns errors of type ssl :: Error and not Error. Handle them accordingly
     // read : simply returns and writes into a buffer. Pointless for identifying errors , but you can use it to get your client information
     // read_to_end : returns errors and writes result into vector buffer. USE this to identify IO errors and write to buffer
+    // #FIXME: There is definitely some issue on the SSL session being closed on the other end. Its giving an unexpected error
     loop {
         stream.flush();
         let mut buf = [0u8; 128];
-        //let mut check_buf = vec![];
-        let bytes_read = stream.ssl_read(&mut buf).unwrap(); // read returns errors of ssl
-        println!("{} bytes were read", bytes_read);
+        let bytes_read = match stream.ssl_read(&mut buf) // returns openssl::ssl::Error
+        {
+            Ok(bytes_read) => bytes_read,
+            Err(err) => {
+                match err{
+                    openssl::ssl::Error::ZeroReturn=>quit("ssl_read_errors"),
+                    openssl::ssl::Error:: WantRead(err)=>quit("ssl_read_errors"),
+                    openssl::ssl::Error::WantWrite(err)=>quit("ssl_read_errors"),
+                    openssl::ssl::Error::WantX509Lookup=>quit("ssl_read_errors"),
+                    openssl::ssl::Error::Stream(err)=>quit("ssl_read_errors"),
+                    openssl::ssl::Error::Ssl(err)=>quit("ssl_read_errors"),
+                }
+            }
+        };
+        //println!("{} bytes were read", bytes_read);
         if bytes_read == 0 {
-            // This handles 0 bytes being read. ctrl+c for some reason. ctrl+d is another system defined error and we need to handle it.
-            println!("Reached EOF");
+            println_err!("Reached EOF");
             process::exit(0)
         }
-        stream.write(&buf[..bytes_read]).unwrap();
+        stream.write(&buf[..bytes_read]);
         for b in buf.iter_mut() {
             *b ^= 0xff;
         }
@@ -373,23 +252,55 @@ fn handle_client(mut stream: SslStream<TcpStream>) {
 }
 
 fn exec_client(opts: &Options, connector: &openssl::ssl::SslConnector) {
-    //let stream = net::TcpStream::connect("127.0.0.1", opts.port).unwrap();
     let stream = net::TcpStream::connect(("127.0.0.1", opts.port)).expect("cannot connect");
-    println!("Hello");
     let mut stream = match connector.connect("google.com", stream) {
         Ok(stream) => stream,
         Err(err) => {
-            println!("{}", err);
-            process::exit(0);
+            match err {
+                openssl::ssl::HandshakeError::SetupFailure { .. } => quit("HANDSHAKE_ERROR"),
+                openssl::ssl::HandshakeError::Failure { .. } => quit("HANDSHAKE_ERROR"),
+                openssl::ssl::HandshakeError::Interrupted { .. } => quit("HANDSHAKE_ERROR"),  
+            }
         }
-    };
-    println!("entered");
-    stream.write_all(b"GET / HTTP/1.0\r\n\r\n").unwrap();
+    }; // This gives a handshake error. Need to map this to different types
+    //let mut stream = connector.connect("google.com", stream).unwrap(); //this gives a handshake error. you need to catch it as an enum and classify it
+    stream.write_all(b"GET / HTTP/1.0\r\n\r\n");
     let mut res = vec![];
-    stream.read_to_end(&mut res).unwrap();
+    stream.read_to_end(&mut res);
     println!("{}", String::from_utf8_lossy(&res));
 }
-
+// This creates an acceptor on the server
+// and accepts incoming streams
+fn exec_server(opts: &Options, identity: &ParsedPkcs12) {
+    let acceptor = SslAcceptorBuilder::mozilla_intermediate(SslMethod::tls(),
+                                                            &identity.pkey,
+                                                            &identity.cert,
+                                                            &identity.chain)
+            .unwrap()
+            .build(); // openssl::error::ErrorStack This gives an error. Might have to map it.
+    match net::TcpStream::connect(("127.0.0.1", opts.port)) {
+        Ok(stream) => {
+            let acceptor = acceptor.clone();
+            let stream = match acceptor.accept(stream) { // This also gives handshake error. openssl::ssl::HandshakeError . Need to map this
+                Ok(stream) => stream,
+                Err(err) => {
+                    match err {
+                        openssl::ssl::HandshakeError::SetupFailure { .. } => {
+                            quit("HANDSHAKE_ERROR")
+                        }
+                        openssl::ssl::HandshakeError::Failure { .. } => quit("HANDSHAKE_ERROR"),
+                        openssl::ssl::HandshakeError::Interrupted { .. } => quit("HANDSHAKE_ERROR"),  
+                    }
+                }
+            };
+            handle_client(stream);
+            drop(acceptor);
+        }
+        Err(e) => {
+            panic!("Connection has failed {:?}", e);
+        } 
+    }
+}
 fn main() {
     let mut args: Vec<_> = env::args().collect();
     env_logger::init().unwrap();
@@ -526,6 +437,7 @@ fn main() {
             "-retain-only-sha256-client-cert-initial" |
             "-expect-peer-cert-file" |
             "-signed-cert-timestamps"|
+            "rsa_chain_cert.pem"|
             "-enable-short-header" => {
                 println!("NYI option {:?}", arg);
                 process::exit(BOGO_NACK);
@@ -533,11 +445,13 @@ fn main() {
 
             _ => {
                 println!("unhandled option {:?}", arg);
-                process::exit(1);
+                //process::exit(1);
+                process::exit(0);
             }
         }
     }
-    println!("opts {:?}", opts);
+    // #Uncomment this later
+    //println!("opts {:?}", opts);
 
     // configuring the settings for the server
     let pkcs12 = if opts.server {
@@ -550,15 +464,15 @@ fn main() {
     } else {
         None
     };
-    println!("moving to establishing a connection");
+    //println!("moving to establishing a connection");
     /*
     This represents a single TLS server session.
     Send TLS-protected data to the peer using the io::Write trait implementation. Read data from the peer using the io::Read trait implementation.
     */
+
     for _ in 0..opts.resumes + 1 {
         if opts.server {
             exec_server(&opts, pkcs12.as_ref().unwrap());
-            println!("Done server");
         } else {
             exec_client(&opts, connector.as_ref().unwrap());
         }
