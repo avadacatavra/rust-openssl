@@ -3,7 +3,6 @@
 //
 
 extern crate openssl;
-extern crate webpki;
 extern crate env_logger;
 
 use std::env;
